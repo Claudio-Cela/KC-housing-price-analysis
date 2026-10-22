@@ -1,0 +1,651 @@
+---
+title: "Project 2"
+author: "Group 18: Maneesh Malpeddi, Claudio Cela, Philip Sadighian, David Kim"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, warning = FALSE, echo = FALSE, include = FALSE}
+#Loading Libraries
+library(MASS)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggmap)
+register_google(key = Sys.getenv("GOOGLE_MAPS_API_KEY"))
+library(scales)
+library(ggplot2)
+library(tidyverse)
+library(GGally)
+library(car)
+library(stats)
+library(ROCR)
+library(pROC)
+```
+
+```{r, warning = FALSE, echo = FALSE, include = FALSE}
+#Data
+df<-read.csv("data/kc_house_data.csv", header=T)
+```
+```{r, warning = FALSE, echo = FALSE, include = FALSE}
+#Data Cleaning
+
+# remove the T###### from the date column
+df$date <- sub("T.*", "", df$date)
+df$date <- as.Date(df$date, format = "%Y%m%d")
+df$id <- NULL
+```
+
+```{r, warning = FALSE, echo = FALSE, include = FALSE}
+# categorical variables
+df$waterfront <- as.factor(df$waterfront)
+
+#convert `grade` to a factor
+df$grade <- as.numeric(df$grade)
+df$grade <- cut(df$grade,
+  breaks = c(0, 3, 7, 13),
+  labels = c("LQ", "AQ", "HQ"),
+  right = TRUE)
+df$grade <- factor(df$grade)
+
+# renovated factor
+df$renovated_flag <- factor(ifelse(df$yr_renovated > 0, 1, 0),
+                              levels = c(0, 1),
+                              labels = c(0, 1))
+clean_df <- df %>%
+  filter(grade != "LQ", bedrooms <= 15, bedrooms != 0, bathrooms != 0) %>%
+  dplyr::select(-yr_renovated)
+```
+
+
+# 1. Summary of Findings
+
+
+This analysis aimed to assess factors influencing home prices and overall quality in King County, Washington using linear and logistic regression. Using available property attributes, we explored measurable relationships to better understand local real estate values. The goal was to establish a clear, data-driven approach for evaluating and predicting home valuation and quality based on the provided variables.
+
+Our linear regression model compares price with predictors available from publicly accessible data. Using a selection method algorithm, we found that the most influential predictors are living space (sqft), quality of view, whether the property is on the waterfront or not, the grade of the home, and the number of bathrooms. With an adjusted R-squared of 0.619, we can say that the model explains approximately 61.9% of variance in the housing price.
+
+When building our logistic model, we aimed to sift through all available variables to predict whether a home qualifies as "Good Quality." After testing several models, we built our model using just two variables: Condition and Price — both of which make intuitive sense to the average home-buyer. After evaluating our model on the test data, it demonstrated strong accuracy and effectively distinguished between "Good Quality" homes and others.
+
+Throughout the project, we were able to see certain modeling patterns emerging out on top. The more data we had available to use, often the better we can build our models for accurate predictions. Through the statistical techniques we will exemplify in the paper below, we now can come away from this analysis with two new useful tools; a model to estimate what a home should sell for based on a set amount of predictors, and another tool to flag the homes that meet the requirements to be estimated as good quality in King County's changing housing market. With both of these tools in hand, both realtors and customers could benefit from the research we have gathered.
+
+------------------------------------------------------
+
+# 2. Description of data and variables
+  This data set that we are analyzing contains house sale prices for King County, Washington sold between May 2014 and May 2015. There are 21 different observation columns for each entry recorded, with some of the columns containing "NA" where there is no data found. The observations included are each summarized easily, but not all of them were used in our analysis depending on their importance.
+  
+  ID is the unique ID for each home sold, which is not important to view from a predictor relationship standpoint for this analysis.
+  
+  Date is the date that the home is sold, which could indicate fluctuations in the market as time goes on. 
+  
+  Price is the price of the sale, with this being the response variable in the study. 
+  
+  There is also bedrooms and bathrooms, which details the number of respective rooms in each case. 
+  
+  There is also sqft_living, sqft_lot, sqft_above (above ground level), and sqft_basement which describe the square footage of each respective space.
+  
+  Sqft_living15 and sqft_lot15 also give square footage measurements, but these are the respective square footage measurements of the nearest 15 neighbors, which can give some insight into the neighborhood type and may have an effect on the price the house will fetch. 
+  
+  Floors is the number of floors in the house, waterfront designates if the apartment is overlooking the waterfront or not, and view is a variable rating how good the property view is at the given house. 
+  
+  Condition and grade describe the condition of the apartment, and the level of building construction and design at a given property, respectively. 
+  
+  The yr_built and yr_renovated designates when the house was initially built, and then the last year that any large renovations took place. We found that it was easier to have yr_renovated as a binary "renovated or not" variable, so transformed the category for ease of use. 
+  
+  Zipcode, lat, and long all are variables that describe location, with zipcode being the zipcode the property is in, and the lat and long being the latitude and longitude coordinates of the specific property. 
+  
+  Lastly, we created a good_quality variable in our logistic regression that categorizes houses into good condition or not, depending on if the house has condition greater than 3 and grade greater than 7 (which would be a good quality home). 
+
+
+------------------------------------------------------
+
+# 3. Data cleaning and variable issues
+This data set we worked with over the course of the project had a variety of data entry errors that needed to be addressed. The first data entry errors that we countered were observations that had 33 bedrooms, 0 bedrooms, and 0 bathrooms. These entries are either missing data, skewing the actual data with half-finished houses we are comparing to fully finished houses, or blatantly wrong since there is no way 33 bedrooms will fit in one house. With this in mind, it was in our best interest to remove all the observations that fell within these categories. After removing the houses with 0 bathrooms, there is only one additional house that fell in the low-grade category, so we also decided to remove this to simplify our categorical variable and to keep the model consistent across the remaining houses. 
+
+We also noticed that there are houses that have the same ID that come from the same house being sold multiple times within the year period of the study. However, after looking at the portion of data that consisted of these "duplicates" (quote-unquote since the sales price of each separate sale of the same house can actually vary), it was a small enough number of entries that it would be more beneficial to the study to keep all of these entries the way that they currently are. 
+
+  As for improving the usability of our other data, we started by simplifying date to remove the time stamp from each entry since it did not add any useful information to the model. We also factored some variables, with waterfront, grade, condition, and year renovated. For grade, we created 3 levels to avoid having a huge amount of factors in this variable, with low, average, and high quality as our levels (which was given to us as supplemental information in the description of the data set). We used this same idea to simplify how we were analyzing year renovated, as we transformed year renovated into a binary 0 (not renovated) or 1 (renovated) categorical variable called rennovated_flag. This was all decided upon in the hopes that it would simplify our finalized model and strengthen our analysis of the relationships within the data.
+  
+  There are some other issues that needed to be addressed before we created the linear regression model. Our initial QQ Plot and Scale Location plot had some variation from the ideal graph we were looking for, so with this in mind we applied a log transformation to the response variable, price, which seemed to fix this variation. This makes sense since there is a very large gap between the lowest price house in the data set and the highest priced. To create our logistic regression analysis, we had to create a variable that was not already included in our dataset, the good_quality categorical variable, which defines a house as condition greater than 3 and grade greater than 7.  We log transformed price as with our linear regression model in order to make our relationship to price more uniform with the rest of the variables, and we also removed sqft_above, lat, and long before moving on with the rest of our analysis, as we did with our linear relationship to keep the data and analysis uniform across the 2. 
+
+------------------------------------------------------
+
+# 4. Price vs variables data visualizations
+
+```{r, warning = FALSE, echo = FALSE}
+
+df_log <- clean_df
+df_log$price <- log(df_log$price)
+df_log$sqft_above <- NULL
+df_log$lat <- NULL
+df_log$long <- NULL
+```
+
+```{r, warning = FALSE, echo = FALSE, message = FALSE}
+ggplot(df_log, aes(x = as.factor(condition), y = price)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7) +
+  labs(title = "Price vs Condition", x = "Condition", y = "Price") +
+  theme_minimal()
+```
+The Price vs Condition figure shows the distribution of log price by the condition rating. As condition increases, the average log-price increases.
+
+
+
+```{r, warning = FALSE, echo = FALSE, message = FALSE}
+# pivot
+df_long <- df_log %>%
+  pivot_longer(cols = c(bedrooms, bathrooms), 
+               names_to = "variable", 
+               values_to = "value")
+
+# plot
+ggplot(df_long, aes(x = value, y = price)) +
+  geom_point(aes(color = variable), alpha = 0.6) +
+  geom_smooth(method = "lm", aes(color = variable), se = FALSE) +
+  labs(title = "Bedrooms vs Bathrooms vs Price",
+       x = "Number of Bedrooms / Bathrooms",
+       y = "Price",
+       color = "Variable") +
+  scale_color_manual(values = c("bedrooms" = "blue", "bathrooms" = "red")) +
+  facet_wrap(~ variable)
+```
+The Bedrooms vs Bathrooms vs Price figure shows a linear relation between the log-price and the number of bedrooms, and it also shows a linear relationship between the log-price and the number of bathrooms. If we look at the slope of the regression line for the two categories, we can see that the slope is larger for the bathroom category. Therefore, it is likely that the number of bathrooms is a greater predictor of price than the number of bedrooms.
+
+
+```{r, warning = FALSE, echo = FALSE, message = FALSE}
+ggplot(df_log, aes(x = sqft_living, y = price, color = grade)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(formula = y ~ x, method = "lm", color = "black") +
+  facet_wrap(vars(grade)) +
+  labs(title = "Price vs Square Foot Living", x = "Square Foot Living", y = "Price")
+```
+The Price vs Square Foot Living, by Grade figure show a linear relationship between the size of the house and its log-price. From this figure we can see that average quality homes are, on average, smaller and cost less than high quality homes. The regression lines appear to have similar slopes though, so we might need more information to determine multicollinearity
+
+
+```{r, warning = FALSE, echo = FALSE, message = FALSE}
+ggplot(df_log, aes(x = as.factor(view), y = price)) +
+  geom_violin(fill = "purple", alpha = 0.6) +
+  labs(title = "Price vs View", x = "View", y = "Price") +
+  theme_minimal()
+```
+Price vs View violin plot shows the distribution of log-price by the view rating. As the view increases, the average log-price increases.
+
+
+------------------------------------------------------
+
+# 5. Linear regression model for price prediction
+
+Now that we have cleaned and set up our data for analysis, we went about creating a linear regression model that would help us explain the influence of the predictors on the prices of homes in King county Washington. We started out by assigning a linear model with our full list of predictors, and then used backwards selection to find the model with the remaining predictors that had the lowest AIC. 
+
+Backwards selection at this point suggested that the best model would be the one containing all of our predictors. We then used forward selection with an intercept-only model to see if we would have more supporting evidence to support our initially suggested model. After running the forward selection steps, the lowest AIC model was once again the model with all of our predictors that were remaining after the data was cleaned; This includes date, bedrooms, bathrooms, sqft_living, sqft_lot, floors, waterfront, view, condition, grade, sqft_above, yr_built, zipcode, lat, long, sqft_living15, sqft_lot15, and rennovated_flag. Once we had this result, we made Residual vs. Fitted, Q-Q Residual, Scale-Location, and Residuals vs. Leverage plots in order to determine if our data needed any further transformations. 
+
+In this case, we saw that the Q-Q Residual plot and Scale-Location plot were showing some signs that we do not have constant variance across all levels of the predicted value. With this in mind, we checked the boxcox plot in order to see where the 95% confidence interval of lambda fell, which showed that it contained 0.
+
+Before moving forward with transforming the y variable based on the previous tests, we ran the VIFs of the forward model to see if there were any predictors that we could remove due to collinearity with other variables. We noted that sqft_above had a high VIF, which makes sense in the context where a house with no basement would mean that sqft_living and sqft_above would be the same figure. We went ahead with removing sqft_above from the model, and also removed lat and long since zipcode was already suitable as a location-based predictor. 
+
+Now that we have optimized the data somewhat, we tried applying a logarithmic transformation to the y variable to correct the variance issue. Now that Y has been transformed, looking at the Residuals vs. Leverage plot we can see that no data points cross Cook's distance which indicates that there is supporting evidence that we do not need to remove any influential or high leverage observations, in relation to the rest of the data. When running the plot tests again, it seems that all assumptions are now met, and we have our finalized linear model. Our estimated equation for this relationship is 
+
+log(price) = 
+-28.50+0.0001478(date)-0.04439(bedrooms)+0.09130(bathrooms)+0.0002121(sqft_living)+
+0.0000002342(sqft_lot)+0.1120(floors)+0.3426(waterfront1)+0.04430(view)+
+0.04901(condition)+0.2375(grade)+
+0.00003685(sqft_basement)-0.004701(yr_built)+
+0.0004803(zipcode)+0.0001664(sqft_living15)-
+0.0000006761(sqft_lot15)+
+0.03312(renovated_flag1).
+
+
+
+```{r, warning = FALSE, echo = FALSE}
+# full model
+full_model <- lm(price ~ ., data = clean_df)
+
+# backward selection using step() function
+backward_model <- step(full_model, direction = "backward")
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+# remove rows with missing values
+df_clean <- na.omit(clean_df)
+
+# full model no NA
+full_model <- lm(price ~ ., data = df_clean)
+
+# empty model (intercept-only model) no NA
+empty_model <- lm(price ~ 1, data = df_clean)
+
+# forward selection
+forward_model <- step(empty_model, direction = "forward", scope = formula(full_model),
+                      trace = 0)
+
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+# backwards model
+summary(backward_model)
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+# forward model
+summary(forward_model)
+```
+
+```{r, warning = FALSE, echo = FALSE}
+par(mfrow = c(2, 2))
+plot(forward_model)
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+par(mfrow = c(2, 2))
+plot(backward_model)
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+boxcox_result <- boxcox(forward_model, lambda = seq(-2, 2, by = 0.1))
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+vif(forward_model)
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+
+df_log <- df_clean
+df_log$price <- log(df_log$price)
+df_log$sqft_above <- NULL
+df_log$lat <- NULL
+df_log$long <- NULL
+```
+
+```{r, warning = FALSE, echo = FALSE}
+# full model no NA
+full_model <- lm(price ~ ., data = df_log)
+
+# empty model (intercept-only model) no NA
+empty_model <- lm(price ~ 1, data = df_log)
+
+# forward selection
+forward_model <- step(empty_model, direction = "forward", scope = formula(full_model),
+                      trace = 0)
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+# backward selection using step() function
+backward_model <- step(full_model, direction = "backward")
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+summary(backward_model)
+summary(forward_model)
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+par(mfrow = c(2, 2))
+plot(backward_model)
+
+par(mfrow = c(2, 2))
+plot(forward_model)
+
+```
+
+
+------------------------------------------------------
+
+# 6. Good quality home characteristics visualizations
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+
+df_original <- read_csv("data/kc_house_data.csv")
+initial_n <- nrow(df_original)
+
+bedrooms_33 <- sum(df_original$bedrooms == 33, na.rm = TRUE)
+bedrooms_0  <- sum(df_original$bedrooms == 0, na.rm = TRUE)
+bathrooms_0 <- sum(df_original$bathrooms == 0, na.rm = TRUE)
+
+df_clean <- df_original %>%
+  mutate(date = sub("T.*", "", date)) %>%
+  filter(bedrooms != 33, bedrooms != 0, bathrooms != 0) %>%
+  mutate(
+    waterfront = factor(waterfront),
+    quality = if_else(condition > 3 & grade > 7, 1, 0),
+    grade_group = case_when(
+      grade >= 10 ~ "High",
+      TRUE ~ "Not High"
+    ),
+    grade_group = factor(grade_group, levels = c("Not High", "High")),
+    renovated = if_else(yr_renovated == 0, 0, 1)
+  )
+
+rows_to_remove <- df_original %>%
+  filter(bedrooms == 33 | bedrooms == 0 | bathrooms == 0) %>%
+  nrow()
+```
+## Univariate visualization for Logistic Regression
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(scales)  # for percent_format
+
+df_condition_uni <- df_clean %>%
+  mutate(condition_bin = factor(
+    if_else(condition > 3, "Good", "Bad"),
+    levels = c("Bad", "Good")  # sets order
+  ))
+
+# Get counts and proportions
+df_plot <- df_condition_uni %>%
+  count(condition_bin) %>%
+  mutate(percentage = n / sum(n))
+
+ggplot(df_plot, aes(x = condition_bin, y = n, fill = condition_bin)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(n, " (", percent(percentage, accuracy = 0.1), ")")),
+            vjust = -0.5, size = 4.5) +
+  scale_fill_manual(values = c("Bad" = "darkorange", "Good" = "dodgerblue2")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  labs(
+    title = "Binned House Condition: Good vs Bad",
+    x = "Condition Category",
+    y = "Count",
+    fill = "Condition"
+  ) +
+  theme_minimal()
+```
+This bar chart shows that approximately 66% of homes are in “Bad” condition (condition <= 3). Given that condition is part of how we define the binary quality variable, this visualization helps establish the baseline distribution and justifies its use as a predictor in the model.
+
+## Bivariate visualization for Logistic Regression
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+df_status_bars <- df_clean %>%
+  mutate(
+    Grade = if_else(grade > 7, "Good", "Bad"),
+    Condition = if_else(condition > 3, "Good", "Bad"),
+    Quality = if_else(grade > 7 & condition > 3, "Good", "Bad")
+  ) %>%
+  dplyr::select(Grade, Condition, Quality) %>%  # explicitly use dplyr::select
+  pivot_longer(cols = everything(), names_to = "Category", values_to = "Status") %>%
+  mutate(
+    Category = factor(Category, levels = rev(c("Grade", "Condition", "Quality"))),
+    Status = factor(Status, levels = c("Good", "Bad"))
+  )
+
+ggplot(df_status_bars, aes(x = Category, fill = Status)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("Good" = "dodgerblue2", "Bad" = "darkorange")) +
+  coord_flip() +
+  labs(
+    title = "Proportion of Homes Rated Good vs Bad by Category",
+    x = "",
+    y = "Proportion",
+    fill = "Rating"
+  ) +
+  theme_minimal()
+```
+This plot shows the proportion of homes rated Good or Bad by grade, condition, and overall quality. Higher grades and better conditions clearly correlate with a higher likelihood of a “Good” rating, supporting the inclusion of both grade_group and condition as complementary predictors.
+
+## Multivariate visualization for Logistic Regression
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+cities <- data.frame(
+  city = c(
+    "Seattle", "Bellevue", "Redmond", "Kirkland", "Renton", "Kent",
+    "Auburn", "Federal Way", "SeaTac", "Issaquah", "Sammamish",
+    "Enumclaw", "Snoqualmie", "Carnation", "Duvall", "Black Diamond", "Vashon"
+  ),
+  lat = c(
+    47.6062, 47.6101, 47.6850, 47.7150, 47.4829, 47.3809,
+    47.2750, 47.3350, 47.4436, 47.5301, 47.6163,
+    47.2043, 47.5289, 47.6470, 47.7421, 47.3210, 47.4475
+  ),
+  lon = c(
+    -122.3321, -122.2015, -122.1050, -122.2300, -122.2171, -122.2348,
+    -122.2150, -122.3600, -122.2968, -122.0326, -122.0356,
+    -122.0000, -121.8255, -121.9110, -121.9720, -122.0020, -122.4597
+  )
+)
+
+df_clean <- df_clean %>%
+  mutate(
+    quality = factor(if_else(condition >= 4 & grade >= 8, "Good", "Bad"),
+                     levels = c("Good", "Bad"))
+  )
+
+sat_map <- get_googlemap(
+  center = c(lon = -122.3, lat = 47.6),
+  zoom = 9,
+  maptype = "satellite"
+)
+
+ggmap(sat_map) +
+  geom_point(data = df_clean,
+             aes(x = long, y = lat, color = quality),
+             size = 1.2, alpha = 0.6) +
+  scale_color_manual(
+    name = "Home Quality",
+    values = c("Good" = "dodgerblue2", "Bad" = "darkorange")
+  ) +
+  geom_text(data = cities,
+            aes(x = lon, y = lat, label = city),
+            color = "white", fontface = "bold", size = 4, alpha = 0.9) +
+  labs(
+    title = "Map of Good vs. Bad Quality Homes",
+    subtitle = "Defined as condition >= 4 and grade <= 8",
+    x = "Longitude", y = "Latitude"
+  ) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(-122.55, -121.65), ylim = c(47.14, 47.79))
+```
+This map highlights clusters of “Good” quality homes, particularly around Seattle-Bellevue, supporting the use of spatially correlated features like sqft_living and bathrooms to capture regional housing trends affecting home quality.
+
+------------------------------------------------------
+
+# 7. Logistic regression model for predicting good quality homes
+
+With our linear regression model completed, we wanted to create a logistic regression model that would help us predict if a home is of good quality based on our other variables in King county Washington. We created the good_quality categorical variable after cleaning the data, applying a logarithmic transformation to price, and removing the sqft_above, lat, and long variables. 
+
+We set a seed to allow our results to be reproducible, and separated samples of the data into a training set and a test set. With this, we took our first attempt at creating a generalized linear model, with good_quality as our response, and waterfront, view, condition, sqft_living, price, and sqft_living15 as our predictors.
+
+After looking at our first results, we noticed that there were some variables that had p-values much larger than 0.05. Our VIFs showed that all of these predictors greatly showed signs of multicollinearity, but in this context this is not a good measure to remove predictors by, since each of these predictors are related by describing the same house in different ways. 
+
+We used our p-values on our full model to come up with a reduced model, which related good_quality as the response, and condition and price as the predictors. This model had all of its p-values under 0.05, so we proceeded forward with this model, first creating a confusion matrix at a threshold of 0.5 to explore the reporting accuracy of our model. We found that our accuracy to be 0.8847, precision to be 0.3421, and our sensitivity to be 0.5478. 
+
+Our ROC of this model at this threshold was far above the middle line, and with an AUC of 0.919 this seemed to be a good start to having a useable prediction model. However, we wanted to test if lowering the threshold would help increase catch more houses that should actually be classified of good_quality in our dataset. Wtih this in mind, we lowered our threshold to 0.25. 
+
+We found that the Accuracy is now 0.8824, our error rate to be 0.1176, our sensitivity to be 0.6495, and our specificity to be 0.9149. Our ROC looked good, and our AUC was 0.919, so we decided to keep our model with this lowered threshold. This was our last step on finalizing our predictive model, which has allowed us to have a functioning algorithm to predict if a house is of good quality based on certain predictors in the listing of the house.
+
+
+```{r, warning = FALSE, echo = FALSE}
+#Changing Df for logistic regression
+df <- read.csv("data/kc_house_data.csv", header = TRUE)
+
+#Remove timestamp from date
+df$date <- sub("T.*", "", df$date)
+df$date <- as.Date(df$date, format = "%Y%m%d")
+
+#Drop unnecessary columns
+df$id <- NULL
+df$waterfront <- as.factor(df$waterfront)
+
+#Create renovated flag
+df$renovated_flag <- factor(ifelse(df$yr_renovated > 0, 1, 0),
+                            levels = c(0, 1),
+                            labels = c(0, 1))
+
+df_clean <- df %>%
+  filter(bedrooms <= 15, bedrooms != 0, bathrooms != 0) %>%
+  dplyr::select(-yr_renovated)
+
+df_clean <- na.omit(df_clean)
+
+#Log-transform price, drop lat/long/sqft_above
+df_log <- df_clean
+df_log$price <- log(df_log$price)
+df_log$sqft_above <- NULL
+df_log$lat <- NULL
+df_log$long <- NULL
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+#NumericGrade
+df_log$good_quality <- ifelse(df_log$condition > 3 & df_log$grade > 7, 1, 0)
+df_log$good_quality <- factor(df_log$good_quality)
+table(df_log$good_quality)
+```
+
+```{r, warning = FALSE, echo = FALSE}
+set.seed(6021)
+sample_rows <- sample(nrow(df_log), floor(0.5 * nrow(df_log)))
+
+train <- df_log[sample_rows, ]
+test <- df_log[-sample_rows, ]
+
+#Making sure target variable is still valid
+table(train$good_quality)
+table(test$good_quality)
+```
+
+```{r, warning = FALSE, echo = FALSE, out.width="50%"}
+ggplot(train, aes(x=as.factor(floors), fill=as.factor(good_quality))) +
+  geom_bar(position="fill") +
+  labs(x="Floors", y="Proportion", title="Good Quality by Number of Floors", fill="Good Quality")
+
+ggplot(train, aes(x=as.factor(waterfront), fill=as.factor(good_quality))) +
+  geom_bar(position="fill") +
+  labs(x="Waterfront", y="Proportion", title="Good Quality by Waterfront Status", fill="Good Quality")
+
+ggplot(train, aes(x=as.factor(view), fill=as.factor(good_quality))) +
+  geom_bar(position="fill") +
+  labs(x="View Rating", y="Proportion", title="Good Quality by View", fill="Good Quality")
+
+ggplot(train, aes(x=as.factor(condition), fill=as.factor(good_quality))) +
+  geom_bar(position="fill") +
+  labs(x="Condition", y="Proportion", title="Good Quality by Condition", fill="Good Quality")
+
+ggplot(train, aes(x=as.factor(renovated_flag), fill=as.factor(good_quality))) +
+  geom_bar(position="fill") +
+  labs(x="Renovated House", y="Proportion", title="Good Quality for Renovated Houses", fill="Good Quality")
+
+```
+
+```{r, warning = FALSE, echo = FALSE, out.width="50%"}
+ggplot(train, aes(x=sqft_living, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Sqft Living Density by Good Quality", color="Good Quality")
+
+ggplot(train, aes(x=sqft_lot, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Sqft Land Space Density by Good Quality", color="Good Quality")
+
+ggplot(train, aes(x=sqft_basement, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Sqft Basement Density by Good Quality", color="Good Quality")
+
+ggplot(train, aes(x=bedrooms, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Bedrooms Density by Good Quality", color="Good Quality")
+
+ggplot(train, aes(x=bathrooms, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Bathrooms Density by Good Quality", color="Good Quality")
+
+ggplot(train, aes(x=as.factor(good_quality), y=price, fill=as.factor(good_quality))) +
+  geom_boxplot() +
+  labs(title="Price by Good Quality", x="Good Quality", fill="Good Quality")
+
+```
+
+
+```{r, warning = FALSE, echo = FALSE, out.width="50%"}
+ggplot(train, aes(x=yr_built, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Year Built Density by Good Quality", color="Good Quality")
+
+ggplot(train, aes(x=sqft_living15, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Sqft Living15 Density by Good Quality", color="Good Quality")
+
+ggplot(train, aes(x=sqft_lot15, color=as.factor(good_quality))) +
+  geom_density() +
+  labs(title="Sqft Lot15 Density by Good Quality", color="Good Quality")
+
+```
+
+
+
+```{r, warning = FALSE, echo = FALSE}
+#Reduced Model
+model2 <- glm(good_quality ~ condition + price,
+              family = binomial, data = train)
+
+summary(model2)
+vif(model2)
+```
+
+```{r, warning = FALSE, echo = FALSE}
+probs <- predict(model2, newdata = test, type = "response")
+summary(probs)
+
+
+#Creating predicted class based on the probabilities
+pred_class <- ifelse(probs > 0.5, "1", "0")
+
+#Creating confusion matrix for 'good_quality' instead of 'grade'
+table(Predicted = pred_class, Actual = test$good_quality)
+
+```
+
+```{r, warning = FALSE, echo = FALSE}
+#Final predicted classes based on chosen threshold
+pred_class <- ifelse(probs > 0.25, "1", "0")
+
+#Confusion Matrix
+conf_matrix <- table(Predicted = pred_class, Actual = test$good_quality)
+TP <- sum(pred_class == "1" & test$good_quality == "1")
+TN <- sum(pred_class == "0" & test$good_quality == "0")
+FP <- sum(pred_class == "1" & test$good_quality == "0")
+FN <- sum(pred_class == "0" & test$good_quality == "1")
+n <- length(test$good_quality)
+
+#Metrics
+accuracy <- (TP + TN) / n
+error_rate <- (FP + FN) / n
+sensitivity <- TP / (TP + FN) #True Positive Rate
+specificity <- TN / (TN + FP) #True Negative Rate
+fpr <- FP / (TN + FP) #False Positive Rate
+fnr <- FN / (TP + FN) #False Negative Rate
+
+#Print results
+print(conf_matrix)
+print("Accuracy:")
+print(accuracy)
+print("Error Rate:")
+print(error_rate)
+print("Sensitivity (TPR):")
+print(sensitivity)
+print("Specificity (TNR):")
+print(specificity)
+print("False Positive Rate (FPR):")
+print(fpr)
+print("False Negative Rate (FNR):")
+print(fnr)
+
+#ROC curve and AUC
+library(pROC)
+roc_curve <- roc(test$good_quality, probs)
+print("Area Under the Curve (AUC):")
+print(auc(roc_curve))
+plot(roc_curve, main = "ROC Curve")
+
+```
+
